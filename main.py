@@ -39,7 +39,6 @@ class Coffi_Window(QDialog):
             self.tableWidget.setItem(0, 6, QTableWidgetItem(packing_volme))
 
 
-
 if __name__ == "__main__":
     app =QApplication(sys.argv)
     ui = Coffi_Window()
