@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
 )
 from pprint import pprint
 
+from apt.auth import update
 from django.db.models.expressions import result
 
 DB_NAME = 'coffee.sqlite'
@@ -22,14 +23,14 @@ class Coffi_Window(QDialog):
         labels = ["ID", "название сорта", "степень обжарки", "молотый/в зернах", "описание вкуса", "цена", "объем упаковки"]
         self.tableWidget.setColumnCount(7)
         self.tableWidget.setHorizontalHeaderLabels(labels)
-        self.tableWidget.cellClicked.connect(self.on_cell_clicked)
+        self.tableWidget.cellClicked.connect(self.edit_entry)
 
         self.btn_update.clicked.connect(self.update_data_in_table)
-        self.btn_add_entry.clicked.connect(self.add_entry)
-        self.btn_edit_entry.clicked.connect(self.edit_entry)
-
+        self.btn_add_entry.clicked.connect(self.create_entry)
 
     def update_data_in_table(self):
+        """ Обновление данны в таблице. """
+
         con = sqlite3.connect(DB_NAME)
         cur = con.cursor()
         result = cur.execute('''
@@ -37,6 +38,7 @@ class Coffi_Window(QDialog):
                             from coffee
                             ''').fetchall()
         self.tableWidget.setRowCount(len(result))
+
         for index, item in enumerate(result):
             c_id, grade, degree_of_roasting, \
             ground_or_in_grains, teaste_description, \
@@ -50,22 +52,24 @@ class Coffi_Window(QDialog):
             self.tableWidget.setItem(index, 5, QTableWidgetItem(str(price)))
             self.tableWidget.setItem(index, 6, QTableWidgetItem(str(packing_volme)))
 
-    def add_entry(self):
+    def create_entry(self):
+        """ Создание новой записи."""
         window = Save_Entry_Window()
+        window.btn_save_entry.clicked.connect(window.save_entry)
         window.exec()
         self.update_data_in_table()
 
-    def edit_entry(self):
-        entry_id = self.cell_is_clicked()
+    def edit_entry(self, row, column):
+        """ Редактирование записи. """
+        entry_id = self.tableWidget.item(row, 0).text()
         if entry_id == None:
             return
         window = Save_Entry_Window()
-
         con = sqlite3.connect(DB_NAME)
         cur = con.cursor()
         q = f'''
             select *
-            from {DB_NAME}
+            from coffee
             where id = {entry_id}
             '''
         entry = cur.execute(q).fetchall()
@@ -73,26 +77,19 @@ class Coffi_Window(QDialog):
         entry_id, name_of_variety, degree_of_roasting, \
         ground_or_in_grains, taste_description,\
         price, volume = entry[0]
-        # Заполнение старыми данными
-        self.LE_name_of_the_variety.setText(name_of_variety)
-        self.CB_degree_of_roasting.setCurrentText(degree_of_roasting)
-        self.CB_ground_or_in_grains.setCurrentText(ground_or_in_grains)
-        self.PTE_taste_description.setPlainText(taste_description)
-        self.LE_price.setText(price)
-        self.CB_volume.setCurrentText(volume)
+        # Заполнение старыми данными для дальнейшего редактирования
+        window.LE_name_of_the_variety.setText(name_of_variety)
+        window.CB_degree_of_roasting.setCurrentText(degree_of_roasting)
+        window.CB_ground_or_in_grains.setCurrentText(ground_or_in_grains)
+        window.PTE_taste_description.setPlainText(taste_description)
+        window.LE_price.setText(str(price))
+        window.CB_volume.setCurrentText(str(volume))
+
+        window.btn_save_entry.clicked.connect(
+                lambda:window.save_entry(True, entry_id))
 
         window.exec()
         self.update_data_in_table()
-
-    def cell_is_clicked(self):
-        for row in range(self.tableWidget.rowCount()):
-            for column in range(self.tableWidget.columnCount()):
-                item = self.item(row, column)
-                if item is not None:
-                    return self.tableWidget.item(row, 0).text()
-        return None
-
-
 
 
 class Save_Entry_Window(QDialog):
@@ -102,10 +99,10 @@ class Save_Entry_Window(QDialog):
         self.setupUI()
 
     def setupUI(self):
-        self.btn_save_entry.clicked.connect(self.save_entry)
-        # self.second_window.exec_()
+        ...
 
     def save_entry(self, is_edit_func=False, entry_id=None):
+        """ Сохранение записи. """
         if is_edit_func: # проверка на то, является ли вызывающая функция функцией для редактирования
             entry_id = entry_id
         else:
@@ -122,16 +119,13 @@ class Save_Entry_Window(QDialog):
         cur = con.cursor()
 
         if is_edit_func:
-            # обновление данных в бд
-            # _ = cur.execute(f'''
-            #                         insert into coffee
-            #                         (ID, Grade, Degree_of_roasting, Ground_or_in_grains,
-            #                         Teaste_description, Price, Packing_volume)
-            #                         values (?, ?, ?, ?, ?, ?, ?)''',
-            #                 (entry_id, name_of_variety,
-            #                  degree_of_roasting, ground_or_in_grains,
-            #                  taste_description, price, volume)
-            #                 )
+            _ = cur.execute(f'''
+                                update coffee
+                                set grade = ?, degree_of_roasting = ?, ground_or_in_grains = ?,
+                                teaste_description = ?, price = ?, packing_volume = ?
+                                where id = ?
+                                ''', (name_of_variety, degree_of_roasting, ground_or_in_grains,
+                                      taste_description, price, volume, entry_id))
         else:
             _ = cur.execute(f'''
                             insert into coffee
@@ -146,7 +140,9 @@ class Save_Entry_Window(QDialog):
         con.close()
         self.close()
 
+
     def generate_entry_id(self) -> int:
+        """ Генерация уникального id записи. """
         con = sqlite3.connect(DB_NAME)
         cur = con.cursor()
         q = '''
